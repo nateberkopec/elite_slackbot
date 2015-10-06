@@ -1,3 +1,4 @@
+require 'net/http'
 require 'slack-ruby-client'
 require 'yajl'
 require 'pry'
