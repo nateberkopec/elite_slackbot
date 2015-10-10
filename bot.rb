@@ -33,6 +33,11 @@ parser = Yajl::Parser.new
 SYSTEMS = parser.parse(response.body)
 response = nil
 
+response = Net::HTTP.get_response("eddb.io","/archive/v3/commodities.json")
+parser = Yajl::Parser.new
+COMMODITIES = parser.parse(response.body)
+response = nil
+
 class Index
   attr_accessor :hightech, :refinery, :extraction
   def initialize
@@ -71,6 +76,8 @@ CLIENT.on :message do |data|
     nearest_to_type(:extraction, data['text'], data['channel'])
   when /^elite nearest_refinery/ then
     nearest_to_type(:refinery, data['text'], data['channel'])
+  when /^elite price/ then
+    get_price_avg(data['text'], data['channel'])
   end
 end
 
@@ -86,6 +93,17 @@ def nearest_to_type(type, text, channel)
   result_system_point = [result_system['x'], result_system['y'], result_system['z']]
 
   CLIENT.message channel: channel, text: "#{result_system['name']} - #{calculate_distance(system_point, result_system_point)} LY"
+end
+
+def get_price_avg(text, channel)
+  commodity_name = text.gsub("elite price ", "")
+  listing = COMMODITIES.detect{ |s| s['name'].downcase == commodity_name.downcase }
+
+  return nil if listing.nil?
+
+  price = listing['average_price']
+
+  CLIENT.message channel: channel, text: "The galactic average price of #{commodity_name} is #{price}cr"
 end
 
 CLIENT.start!
