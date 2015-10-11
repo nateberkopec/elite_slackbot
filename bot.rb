@@ -3,6 +3,17 @@ require 'slack-ruby-client'
 require 'yajl'
 require 'pry'
 require 'knnball'
+require 'optparse'
+
+options = {}
+OptionParser.new do |opts|
+    opts.banner = "Usage: example.rb [options]"
+    opts.on("-f", "--[no-]full", "Use full stations json") do |f|
+      options[:full] = f
+    end
+end.parse!
+p options
+p ARGV
 
 COMMODITY_CHANNEL = "elite_commodities"
 
@@ -23,10 +34,20 @@ end
 
 # binding.pry
 
+# Stations_lite doesn't include listings, but regular Stations is ~190mb
+# so lets use a local copy of the stations.json for now #jasonisfat
 response = Net::HTTP.get_response("eddb.io","/archive/v3/stations_lite.json")
 parser = Yajl::Parser.new
-STATIONS = parser.parse(response.body)
+STATIONS_LITE = parser.parse(response.body)
 response = nil
+
+STATION = nil
+if options[:full]
+  parser = Yajl::Parser.new
+  json = File.new("stations.json", 'r')
+  STATIONS = parser.parse(json)
+  puts "loaded full stations.json"
+end
 
 response = Net::HTTP.get_response("eddb.io","/archive/v3/systems.json")
 parser = Yajl::Parser.new
@@ -61,15 +82,9 @@ end
 CLIENT.on :message do |data|
   case data['text']
   when /^elite station/ then
-    station_name = data['text'].gsub("elite station ", "")
-    station = STATIONS.detect { |s| s['name'].downcase == station_name.downcase }
-    msg = ""
-    station.each do |key, value|
-      next if key == "listings"
-      msg << "#{key}: #{value}\n"
-    end
-
-    CLIENT.message channel: data['channel'], text: msg
+    get_station_info(data['text'], data['channel'], options[:full])
+  when /^elite listings/ then
+    get_station_listings(data['text'], data['channel'], options[:full])
   when /^elite nearest_hightech/ then
     nearest_to_type(:hightech, data['text'], data['channel'])
   when /^elite nearest_extraction/ then
@@ -105,5 +120,57 @@ def get_price_avg(text, channel)
 
   CLIENT.message channel: channel, text: "The galactic average price of #{commodity_name} is #{price}cr"
 end
+
+def get_station_info(text, channel, usingFull)
+  station_name = text.gsub("elite station ", "")
+  if !usingFull
+    station = STATIONS_LITE.detect { |s| s['name'].downcase == station_name.downcase }
+  else
+    station = STATIONS.detect { |s| s['name'].downcase == station_name.downcase }
+  end
+
+  msg = ""
+  if station.nil?
+    msg << "That station doesn't exist"
+  else
+    if !usingFull
+      station.each do |key, value|
+        msg << "#{key}: #{value}\n"
+      end
+    else
+      station.each do |key, value|
+        next if key == "listings"
+        msg << "#{key}: #{value}\n"
+      end
+    end
+  end
+  CLIENT.message channel: channel, text: msg
+end
+
+def get_station_listings(text, channel, usingFull)
+  station_name = text.gsub("elite listings ", "")
+  if !usingFull
+    station = nil
+  else
+    station = STATIONS.detect { |s| s['name'].downcase == station_name.downcase }
+  end
+
+  msg = ""
+  if station.nil?
+    if !usingFull
+      msg << "No listing data when using stations_lite.json, start bot with -full option"
+    else
+      msg << "That station doesn't exist"
+    end
+  else
+    msg << "This method works, but there are too many commodities to list right now."
+    # station.each do |key, value|
+    #   next if key != "listings"
+    #   msg << "#{key}: #{value}\n"
+    # end
+  end
+  CLIENT.message channel: channel, text: msg
+end
+
 
 CLIENT.start!
